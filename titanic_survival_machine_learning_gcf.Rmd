@@ -1,0 +1,39 @@
+---
+title: "Titanic survival machine learning analysis"
+author: Graham French
+date: '`r Sys.Date()`'
+output: html_notebook
+---
+
+```{r }
+library(magrittr)
+```
+
+The titanic package contains both the training and test data
+
+```{r}
+train <- titanic::titanic_train
+test <- titanic::titanic_test
+```
+
+A good work through of the analysis is [Trevor Stephen's series of titanic tutorials](http://trevorstephens.com/kaggle-titanic-tutorial/getting-started-with-r/)
+
+## Decision Trees
+
+[Part 3](http://trevorstephens.com/kaggle-titanic-tutorial/r-part-3-decision-trees/) of the tutorial calculates survival using decision trees
+
+```{r fig.width=8}
+fit <- rpart::rpart(Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked,
+             data = train,
+             method = "class") %T>% 
+  rattle::fancyRpartPlot()
+```
+
+```{r}
+prediction <- predict(fit, test, type = "class")
+submit <- test %>%
+  dplyr::mutate(Survived = prediction) %>% 
+  dplyr::select(PassengerId, Survived) %T>% 
+  readr::write_csv(here::here("myfirstdtree.csv"))
+```
+
