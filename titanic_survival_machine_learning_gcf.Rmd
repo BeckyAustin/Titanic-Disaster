@@ -25,7 +25,8 @@ A good work through of the analysis is [Trevor Stephen's series of titanic tutor
 ```{r fig.width=8}
 fit <- rpart::rpart(Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked,
              data = train,
-             method = "class") %T>% 
+             method = "class",
+             control = rpart::rpart.control(minsplit = 20, cp = 0.01)) %T>% 
   rattle::fancyRpartPlot()
 ```
 
@@ -38,6 +39,8 @@ submit <- test %>%
 ```
 
 ## Random Forest
+
+[Part 5](http://trevorstephens.com/kaggle-titanic-tutorial/r-part-5-random-forests/) of the tutorial calculates survival using random forest method
 
 Random Forest method does not allow for missing values so need to fill predict the gaps in both the test and training datasets
 
@@ -69,7 +72,48 @@ rf_test <- combined %>%
   dplyr::select(-Survived)
 ```
 
-Fill in missing Embarked values by assumming they got on in Southampton
+Fill in missing Embarked values in training dataset by assumming they got on in Southampton
 
+```{r}
+rf_train <- rf_train %>%
+  dplyr::mutate(Embarked = dplyr::if_else(Embarked == "", "S", Embarked))
+```
+
+Replace missing fare in test database with median value
+
+```{r}
+rf_test <- rf_test %>%
+  tidyr::replace_na(list(Fare = median(combined$Fare, na.rm = TRUE)))
+```
+
+Convert character strings to factors
+
+```{r}
+rf_train <- rf_train %>%
+  dplyr::mutate(Sex = forcats::as_factor(Sex),
+                Embarked = forcats::as_factor(Embarked))
+rf_test <- rf_test %>%
+  dplyr::mutate(Sex = forcats::as_factor(Sex),
+                Embarked = forcats::as_factor(Embarked))
+```
+
+Run randomForest
+
+```{r}
+set.seed(415)
+rf_fit <- randomForest::randomForest(as.factor(Survived) ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked,
+                data = rf_train,
+                importance = TRUE,
+                ntree = 2000) %T>% 
+  randomForest::varImpPlot()
+```
+
+```{r}
+prediction <- predict(rf_fit, rf_test)
+submit <- rf_test %>%
+  dplyr::mutate(Survived = prediction) %>% 
+  dplyr::select(PassengerId, Survived) %T>% 
+  readr::write_csv(here::here("myfirstforest.csv"))
+```
 
 
