@@ -9,21 +9,48 @@ output: html_notebook
 library(magrittr)
 ```
 
-The titanic package contains both the training and test data
+The titanic package contains both the training and test data. Import the training and test dataset from this package, converting appropriate variables to factors and removing the two passengers with unknown Embarked values
 
 ```{r}
-train <- titanic::titanic_train
-test <- titanic::titanic_test
+train <- titanic::titanic_train %>% 
+  dplyr::mutate(Survived = forcats::as_factor(as.character(Survived)),
+                Pclass = forcats::as_factor(as.character(Pclass)),
+                Sex = forcats::as_factor(Sex),
+                Embarked = forcats::as_factor(Embarked)) %>% 
+  dplyr::filter(Embarked != "")
+
+test <- titanic::titanic_test %>% 
+  dplyr::mutate(Pclass = forcats::as_factor(as.character(Pclass)),
+                Sex = forcats::as_factor(Sex),
+                Embarked = forcats::as_factor(Embarked))
 ```
 
 A good work through of the analysis is [Trevor Stephen's series of titanic tutorials](http://trevorstephens.com/kaggle-titanic-tutorial/getting-started-with-r/)
+
+## Feature Engineering
+
+Another useful variable to extract is the title from the names. This is taken from Vincent Broute's post [Titanic EDA & predictions attempt](https://www.kaggle.com/neveldo/titanic-eda-predictions-attempt/notebook)
+
+```{r }
+train <- train %>% 
+  dplyr::mutate(Title = stringr::str_extract(Name, stringr::regex("([a-z]+\\.)", ignore_case = TRUE)),
+                Title = stringr::str_replace(Title, "\\.", ""),
+                Title = dplyr::recode(Title, "Jonkheer" = "Mr"), # missing title, assume Mr
+                Title = forcats::as_factor(Title))
+
+test <- test %>%
+  dplyr::mutate(Title = stringr::str_extract(Name, stringr::regex("([a-z]+\\.)", ignore_case = TRUE)),
+                Title = stringr::str_replace(Title, "\\.", ""),          
+                Title = dplyr::recode(Title, "Dona" = "Miss"), # missing title, assume Miss
+                Title = forcats::as_factor(Title))
+```
 
 ## Decision Trees
 
 [Part 3](http://trevorstephens.com/kaggle-titanic-tutorial/r-part-3-decision-trees/) of the tutorial calculates survival using decision trees
 
 ```{r fig.width=8}
-fit <- rpart::rpart(Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked,
+fit <- rpart::rpart(Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked + Title,
              data = train,
              method = "class",
              control = rpart::rpart.control(minsplit = 20, cp = 0.01)) %T>% 
@@ -35,14 +62,14 @@ prediction <- predict(fit, test, type = "class")
 submit <- test %>%
   dplyr::mutate(Survived = prediction) %>% 
   dplyr::select(PassengerId, Survived) %T>% 
-  readr::write_csv(here::here("myfirstdtree.csv"))
+  readr::write_csv(here::here("myseconddtree.csv"))
 ```
 
 ## Random Forest
 
 [Part 5](http://trevorstephens.com/kaggle-titanic-tutorial/r-part-5-random-forests/) of the tutorial calculates survival using random forest method
 
-Random Forest method does not allow for missing values so need to fill predict the gaps in both the test and training datasets
+Random Forest method does not allow for missing values so need to fill predict the gaps in both the test and training datasets. Factors are also required for Survived and discrete variables
 
 Predict the missing ages using a decision tree
 
@@ -62,21 +89,19 @@ combined_test <- combined %>%
   dplyr::mutate(Age = predict(fit_age, .))
 
 # Recombine training and test datasets
-combined <- dplyr::bind_rows(combined_train, combined_test)
-
-# Recreate the titanic training and test datasets
-rf_train <- combined %>%
-  dplyr::filter(PassengerId <= 891)
-rf_test <- combined %>%
-  dplyr::filter(PassengerId > 891) %>% 
-  dplyr::select(-Survived)
+combined <- dplyr::bind_rows(combined_train, combined_test) %>% 
+  dplyr::mutate(Title = forcats::as_factor(Title))
 ```
 
-Fill in missing Embarked values in training dataset by assumming they got on in Southampton
-
-```{r}
-rf_train <- rf_train %>%
-  dplyr::mutate(Embarked = dplyr::if_else(Embarked == "", "S", Embarked))
+```{r }
+# Recreate the titanic training and test datasets
+rf_train <- combined %>%
+  dplyr::filter(PassengerId <= 891) %>% 
+  dplyr::mutate(Embarked = forcats::as_factor(Embarked))
+rf_test <- combined %>%
+  dplyr::filter(PassengerId > 891) %>% 
+  dplyr::mutate(Embarked = forcats::as_factor(Embarked)) %>% 
+  dplyr::select(-Survived)
 ```
 
 Replace missing fare in test database with median value
@@ -86,22 +111,11 @@ rf_test <- rf_test %>%
   tidyr::replace_na(list(Fare = median(combined$Fare, na.rm = TRUE)))
 ```
 
-Convert character strings to factors
-
-```{r}
-rf_train <- rf_train %>%
-  dplyr::mutate(Sex = forcats::as_factor(Sex),
-                Embarked = forcats::as_factor(Embarked))
-rf_test <- rf_test %>%
-  dplyr::mutate(Sex = forcats::as_factor(Sex),
-                Embarked = forcats::as_factor(Embarked))
-```
-
 Run randomForest
 
 ```{r}
 set.seed(415)
-rf_fit <- randomForest::randomForest(as.factor(Survived) ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked,
+rf_fit <- randomForest::randomForest(Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked + Title,
                 data = rf_train,
                 importance = TRUE,
                 ntree = 2000) %T>% 
@@ -113,7 +127,7 @@ prediction <- predict(rf_fit, rf_test)
 submit <- rf_test %>%
   dplyr::mutate(Survived = prediction) %>% 
   dplyr::select(PassengerId, Survived) %T>% 
-  readr::write_csv(here::here("myfirstforest.csv"))
+  readr::write_csv(here::here("mysecondforest.csv"))
 ```
 
 
